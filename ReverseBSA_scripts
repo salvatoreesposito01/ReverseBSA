@@ -1,0 +1,48 @@
+# Create two folders (bulk1 and bulk2) containing BAM files
+# Move into bulk1 directory
+$ cd bulk1/
+
+# Merge all BAM files in the current folder into a single BAM file
+$ samtools merge bulk1.bam *.bam -@ 4
+
+# Extract the BAM header
+$ samtools view -H bulk1.bam > header1.txt
+
+# Open header1.txt in a text editor (e.g Notepad) and retain only one @RG and @PL field
+# After editing, replace the original BAM header with the modified one 
+$ samtools reheader header1.txt bulk1.bam > bulk1.rh.bam
+
+# Standardize the read group ID by replacing it with "bulk1"
+$ samtools addreplacerg -R bulk1 -o bulk1.rh.rp.bam bulk1.rh.bam -O BAM
+
+# Index the new BAM file
+$ samtools index -c bulk1.rh.rp.bam
+
+# Repeat the same steps in the bulk2 directory
+# At this point, you should have two processed BAM files: one for bulk1 and one for bulk2
+
+# Index the reference genome for GATK
+$ ./gatk CreateSequenceDictionary -R iwgsc_refseqv2.1.0_all_chromosomes/161010_Chinese_Spring_v2.1_pseudomolecules.fasta
+
+# Run GATK HaplotypeCaller in GVCF mode for each sample$ ./gatk HaplotypeCaller --java-options '-Xmx2g' -R iwgsc_refseqv2.1.0_all_chromosomes/161010_Chinese_Spring_v2.1_pseudomolecules.fasta -I bulk1.rh.rp.bam -O bulk1.rh.rp.g.vcf -ERC GVCF 
+$ ./gatk HaplotypeCaller --java-options '-Xmx2g' -R iwgsc_refseqv2.1.0_all_chromosomes/161010_Chinese_Spring_v2.1_pseudomolecules.fasta -I bulk2.rh.rp.bam -O bulk2.rh.rp.g.vcf -ERC GVCF 
+
+# Compress and index the GVCF files$ bgzip -c bulk1.rh.rp.g.vcf > bulk1.rh.rp.g.vcf.gz
+$ tabix -p vcf bulk1.rh.rp.g.vcf.gz
+
+# Combine the two GVCF files$ ./gatk CombineGVCFs -R iwgsc_refseqv2.1.0_all_chromosomes/161010_Chinese_Spring_v2.1_pseudomolecules.fasta -V bulk1.rh.rp.g.vcf.gz -V bulk2.rh.rp.g.vcf.gz -O combined.g.vcf.gz
+
+# Perform joint genotyping$./gatk GenotypeGVCFs -R iwgsc_refseqv2.1.0_all_chromosomes/161010_Chinese_Spring_v2.1_pseudomolecules.fasta -V combined.g.vcf.gz -O raw_variants.vcf.gz
+
+# Extract SNPs only
+./gatk SelectVariants -R iwgsc_refseqv2.1.0_all_chromosomes/161010_Chinese_Spring_v2.1_pseudomolecules.fasta -V raw_variants.vcf.gz --select-type-to-include SNP -O raw_SNPvariants.vcf.gz
+
+# Apply quality filters to the variants
+./gatk VariantFiltration -R iwgsc_refseqv2.1.0_all_chromosomes/161010_Chinese_Spring_v2.1_pseudomolecules.fasta -V raw_SNPvariants.vcf.gz -O SNPvariants.filtered.vcf.gz --filterExpression "AB < 0.2 || MQ0 > 50" --filterName "my_filters"
+
+# Generate a table file for QTLseqr input
+./gatk VariantsToTable -V SNPvariants.filtered.vcf.gz -R iwgsc_refseqv2.1.0_all_chromosomes/161010_Chinese_Spring_v2.1_pseudomolecules.fasta -F CHROM -F POS -F REF -F ALT -GF AD -GF DP -GF GQ -GF PL -O bulk.table
+
+
+#Open R and proceed with QTLseqr analysis, following the official documentation
+
